@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import sys
 from pathlib import Path
 from time import perf_counter
 from typing import Dict, List, Tuple
@@ -25,6 +26,10 @@ from ase.io import read, write
 from ase.build import surface, add_adsorbate, molecule
 from ase.constraints import FixAtoms
 from ase import units
+
+# プロジェクトのutilsをインポート
+sys.path.append(str(Path(__file__).parent.parent / "LiB2_structure_ipynb"))
+from utils.io_utils import generate_output_filename_prefix
 
 # Matlantis関連のインポート
 try:
@@ -300,9 +305,15 @@ def build_layered_system(n_al2o3_layers: int, config: Dict) -> Atoms:
 # 段階加熱MD実行関数
 # ========================================================================
 
-def run_staged_heating_md(atoms: Atoms, n_layers: int, config: Dict):
+def run_staged_heating_md(atoms: Atoms, n_layers: int, config: Dict, file_prefix: str = ""):
     """
     2段階加熱MDを実行する (Stage1: LiPF₆分解, Stage2: PVDF分解)
+
+    Args:
+        atoms: 初期構造
+        n_layers: Al₂O₃の層数
+        config: 設定パラメータ
+        file_prefix: ファイル名プレフィックス（入力ファイル名由来）
     """
     if not MATLANTIS_AVAILABLE:
         print("✗ Matlantis環境が利用できないため、シミュレーションをスキップします")
@@ -311,7 +322,8 @@ def run_staged_heating_md(atoms: Atoms, n_layers: int, config: Dict):
     print(f"\n=== 段階加熱MD開始: {n_layers}層 ===\n")
 
     output_dir = config['output_dir']
-    fname_base = f"al2o3_{n_layers}layers"
+    prefix_part = f"{file_prefix}_" if file_prefix else ""
+    fname_base = f"{prefix_part}al2o3_{n_layers}layers"
 
     estimator_fn = pfp_estimator_fn(
         model_version=config['model_version'],
@@ -392,9 +404,13 @@ def run_staged_heating_md(atoms: Atoms, n_layers: int, config: Dict):
 # 結果解析・プロット関数
 # ========================================================================
 
-def analyze_thickness_dependence(config: Dict):
+def analyze_thickness_dependence(config: Dict, file_prefix: str = ""):
     """
     層厚依存性の解析とプロット
+
+    Args:
+        config: 設定パラメータ
+        file_prefix: ファイル名プレフィックス（入力ファイル名由来）
     """
     print("\n=== 層厚依存性解析 ===\n")
 
@@ -405,7 +421,8 @@ def analyze_thickness_dependence(config: Dict):
 
     for n_layers in layers_list:
         # Stage2の結果を読み込み
-        fname = f"al2o3_{n_layers}layers_stage2"
+        prefix_part = f"{file_prefix}_" if file_prefix else ""
+        fname = f"{prefix_part}al2o3_{n_layers}layers_stage2"
         log_path = output_dir / f"{fname}_interface.log"
 
         if not log_path.exists():
@@ -455,12 +472,16 @@ def analyze_thickness_dependence(config: Dict):
     axes[1].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plot_path = output_dir / "thickness_dependence.png"
+
+    # ファイル名にプレフィックスを追加
+    plot_filename = f"{file_prefix}_thickness_dependence.png" if file_prefix else "thickness_dependence.png"
+    plot_path = output_dir / plot_filename
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     print(f"\n✓ グラフを保存しました: {plot_path}\n")
 
     # 結果テーブルの保存
-    csv_path = output_dir / "thickness_dependence.csv"
+    csv_filename = f"{file_prefix}_thickness_dependence.csv" if file_prefix else "thickness_dependence.csv"
+    csv_path = output_dir / csv_filename
     df_results.to_csv(csv_path, index=False)
     print(f"✓ 結果テーブルを保存しました: {csv_path}\n")
 
@@ -476,10 +497,18 @@ def main():
     print("  Phase 2-A: Al₂O₃層厚依存性検証")
     print("=" * 60 + "\n")
 
-    # 出力ディレクトリの作成
+    # 出力ディレクトリの作成（共通）
     output_dir = Path(CONFIG['output_dir'])
     output_dir.mkdir(exist_ok=True)
-    print(f"出力ディレクトリ: {output_dir}\n")
+
+    # ファイル名プレフィックスを生成（このプログラムでは特に入力ファイルがないので空）
+    # 必要に応じてタイムスタンプを使用可能
+    file_prefix = generate_output_filename_prefix(use_timestamp=False)
+
+    print(f"出力ディレクトリ: {output_dir}")
+    if file_prefix:
+        print(f"ファイル名プレフィックス: {file_prefix}")
+    print()
 
     if not MATLANTIS_AVAILABLE:
         print("✗ Matlantis環境が利用できません")
@@ -491,16 +520,17 @@ def main():
         # 構造構築
         system = build_layered_system(n_layers, CONFIG)
 
-        # 初期構造の保存
-        init_path = output_dir / f"initial_al2o3_{n_layers}layers.xyz"
+        # 初期構造の保存（ファイル名にプレフィックスを追加）
+        init_filename = f"{file_prefix}_initial_al2o3_{n_layers}layers.xyz" if file_prefix else f"initial_al2o3_{n_layers}layers.xyz"
+        init_path = output_dir / init_filename
         write(init_path, system)
         print(f"✓ 初期構造を保存: {init_path}\n")
 
         # 段階加熱MD実行
-        run_staged_heating_md(system, n_layers, CONFIG)
+        run_staged_heating_md(system, n_layers, CONFIG, file_prefix)
 
     # 層厚依存性の解析
-    analyze_thickness_dependence(CONFIG)
+    analyze_thickness_dependence(CONFIG, file_prefix)
 
     print("\n" + "=" * 60)
     print("  Phase 2-A 完了")
