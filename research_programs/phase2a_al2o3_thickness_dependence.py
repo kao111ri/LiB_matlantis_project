@@ -27,9 +27,9 @@ from ase.build import surface, add_adsorbate, molecule
 from ase.constraints import FixAtoms
 from ase import units
 
-# プロジェクトのutilsをインポート
-sys.path.append(str(Path(__file__).parent.parent / "LiB2_structure_ipynb"))
-from utils.io_utils import generate_output_filename_prefix
+# プロジェクトのutilsをインポート（クラウド環境用の絶対パス）
+sys.path.append("/home/jovyan/Kaori/MD/LiB_2/structure")
+from LiB2_structure_ipynb.utils.io_utils import generate_output_filename_prefix
 
 # Matlantis関連のインポート
 try:
