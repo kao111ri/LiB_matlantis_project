@@ -15,12 +15,17 @@ Phase 1-A: 既存データの徹底解析プログラム
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 from ase.io import read
 from ase.geometry import get_distances
 import warnings
 warnings.filterwarnings('ignore')
+
+# プロジェクトのutilsをインポート
+sys.path.append(str(Path(__file__).parent.parent / "LiB2_structure_ipynb"))
+from utils.io_utils import generate_output_filename_prefix
 
 # ========================================================================
 # 設定パラメータ
@@ -158,13 +163,14 @@ def analyze_trajectory(traj_path: str, params: Dict) -> pd.DataFrame:
     return pd.DataFrame(results)
 
 
-def plot_analysis_results(df: pd.DataFrame, output_dir: str):
+def plot_analysis_results(df: pd.DataFrame, output_dir: str, file_prefix: str = ""):
     """
     解析結果をプロットして保存する
 
     Args:
         df: 解析結果のDataFrame
         output_dir: 出力ディレクトリ
+        file_prefix: ファイル名プレフィックス（入力ファイル名由来）
     """
     print("=== グラフ作成中 ===\n")
 
@@ -204,7 +210,9 @@ def plot_analysis_results(df: pd.DataFrame, output_dir: str):
 
     plt.tight_layout()
 
-    output_path = Path(output_dir) / "analysis_results.png"
+    # ファイル名にプレフィックスを追加
+    plot_filename = f"{file_prefix}_analysis_results.png" if file_prefix else "analysis_results.png"
+    output_path = Path(output_dir) / plot_filename
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"✓ グラフを保存しました: {output_path}\n")
 
@@ -218,7 +226,8 @@ def plot_analysis_results(df: pd.DataFrame, output_dir: str):
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
 
-        temp_path = Path(output_dir) / "temperature_evolution.png"
+        temp_filename = f"{file_prefix}_temperature_evolution.png" if file_prefix else "temperature_evolution.png"
+        temp_path = Path(output_dir) / temp_filename
         plt.savefig(temp_path, dpi=300, bbox_inches='tight')
         print(f"✓ 温度プロットを保存しました: {temp_path}\n")
 
@@ -276,10 +285,16 @@ def main():
     print("  Phase 1-A: 既存データの徹底解析")
     print("=" * 60 + "\n")
 
-    # 出力ディレクトリの作成
+    # 出力ディレクトリの作成（共通）
     output_dir = Path(OUTPUT_DIR)
     output_dir.mkdir(exist_ok=True)
-    print(f"出力ディレクトリ: {output_dir}\n")
+
+    # 入力ファイル名に基づいて出力ファイル名のプレフィックスを生成
+    file_prefix = generate_output_filename_prefix(INPUT_TRAJ_PATH)
+
+    print(f"入力ファイル: {INPUT_TRAJ_PATH}")
+    print(f"出力ディレクトリ: {output_dir}")
+    print(f"ファイル名プレフィックス: {file_prefix}\n")
 
     # Trajectory解析
     df = analyze_trajectory(INPUT_TRAJ_PATH, ANALYSIS_PARAMS)
@@ -291,13 +306,14 @@ def main():
         print("2. trajectoryファイルが存在することを確認してください")
         return
 
-    # 結果をCSVに保存
-    csv_path = output_dir / "analysis_results.csv"
+    # 結果をCSVに保存（ファイル名にプレフィックスを追加）
+    csv_filename = f"{file_prefix}_analysis_results.csv" if file_prefix else "analysis_results.csv"
+    csv_path = output_dir / csv_filename
     df.to_csv(csv_path, index=False)
     print(f"✓ 解析結果をCSVに保存しました: {csv_path}\n")
 
-    # グラフ作成
-    plot_analysis_results(df, output_dir)
+    # グラフ作成（ファイル名プレフィックスを渡す）
+    plot_analysis_results(df, output_dir, file_prefix)
 
     # サマリー出力
     print_summary(df)

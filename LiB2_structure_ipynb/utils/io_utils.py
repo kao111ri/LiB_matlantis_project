@@ -4,12 +4,14 @@
 このモジュールには以下の機能が含まれます：
 - trajファイルからcifファイルへの変換
 - 小さいファイルの削除とログ記録
+- 入力ファイル名に基づいた出力ディレクトリ名の生成
 """
 
 import os
 import csv
 from datetime import datetime
-from typing import List, Dict
+from pathlib import Path
+from typing import List, Dict, Optional
 from ase.io import read, write
 
 
@@ -177,3 +179,42 @@ def batch_convert_traj_to_cif(
     print("-" * 30)
 
     return results
+
+
+def generate_output_filename_prefix(
+    input_file_or_folder: Optional[str] = None,
+    use_timestamp: bool = False
+) -> str:
+    """
+    入力ファイル名またはフォルダ名に基づいて、出力ファイル名のプレフィックスを生成する
+
+    Args:
+        input_file_or_folder (str, optional): 入力ファイルまたはフォルダのパス
+        use_timestamp (bool): タイムスタンプを追加するか（デフォルト: False）
+
+    Returns:
+        str: 生成されたファイル名プレフィックス
+
+    Examples:
+        >>> generate_output_filename_prefix("data/Al2O3-PVDF_md_1600K.traj")
+        'Al2O3-PVDF_md_1600K'
+
+        >>> generate_output_filename_prefix("data/Al2O3-PVDF_md_1600K.traj", use_timestamp=True)
+        'Al2O3-PVDF_md_1600K_20250119_143022'
+
+        >>> generate_output_filename_prefix()
+        ''
+    """
+    if not input_file_or_folder:
+        return ""
+
+    # 入力ファイル/フォルダのベース名を取得（拡張子なし）
+    input_path = Path(input_file_or_folder)
+    prefix = input_path.stem  # 拡張子なしのファイル名
+
+    # タイムスタンプを追加（オプション）
+    if use_timestamp:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        prefix = f"{prefix}_{timestamp}"
+
+    return prefix

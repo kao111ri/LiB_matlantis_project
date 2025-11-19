@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import sys
 from pathlib import Path
 from time import perf_counter
 from typing import Dict, List
@@ -23,6 +24,10 @@ from typing import Dict, List
 from ase import Atoms
 from ase.io import read, write
 from ase import units
+
+# プロジェクトのutilsをインポート
+sys.path.append(str(Path(__file__).parent.parent / "LiB2_structure_ipynb"))
+from utils.io_utils import generate_output_filename_prefix
 
 # Matlantis関連のインポート
 try:
@@ -266,13 +271,14 @@ def random_placement_fallback(molecule: Atoms, n_molecules: int, cell_size: floa
 # NPT圧縮計算
 # ========================================================================
 
-def run_npt_compression(atoms: Atoms, config: Dict) -> Atoms:
+def run_npt_compression(atoms: Atoms, config: Dict, file_prefix: str = "") -> Atoms:
     """
     NPT計算で高温圧縮を実行し、密度を上げる
 
     Args:
         atoms: 初期構造
         config: 設定パラメータ
+        file_prefix: ファイル名プレフィックス（入力ファイル名由来）
 
     Returns:
         圧縮後の構造
@@ -284,7 +290,7 @@ def run_npt_compression(atoms: Atoms, config: Dict) -> Atoms:
     print(f"\n=== STEP 3: NPT圧縮計算 ===\n")
 
     output_dir = config['output_dir']
-    fname = "pvdf_npt_compression"
+    fname = f"{file_prefix}_pvdf_npt_compression" if file_prefix else "pvdf_npt_compression"
 
     # 計算ステップ数
     n_steps = int(config['compress_time'] * 1000 / config['timestep'])
@@ -350,13 +356,14 @@ def run_npt_compression(atoms: Atoms, config: Dict) -> Atoms:
 # 冷却計算 (オプション)
 # ========================================================================
 
-def run_npt_cooling(atoms: Atoms, config: Dict) -> Atoms:
+def run_npt_cooling(atoms: Atoms, config: Dict, file_prefix: str = "") -> Atoms:
     """
     NPT計算で冷却を実行し、室温で緩和させる
 
     Args:
         atoms: 圧縮後の構造
         config: 設定パラメータ
+        file_prefix: ファイル名プレフィックス（入力ファイル名由来）
 
     Returns:
         冷却後の構造
@@ -367,7 +374,7 @@ def run_npt_cooling(atoms: Atoms, config: Dict) -> Atoms:
     print(f"\n=== STEP 4: NPT冷却計算 ===\n")
 
     output_dir = config['output_dir']
-    fname = "pvdf_npt_cooling"
+    fname = f"{file_prefix}_pvdf_npt_cooling" if file_prefix else "pvdf_npt_cooling"
 
     n_steps = int(config['cooling_time'] * 1000 / config['timestep'])
 
@@ -428,9 +435,13 @@ def run_npt_cooling(atoms: Atoms, config: Dict) -> Atoms:
 # 結果プロット
 # ========================================================================
 
-def plot_density_evolution(config: Dict):
+def plot_density_evolution(config: Dict, file_prefix: str = ""):
     """
     密度の時間変化をプロットする
+
+    Args:
+        config: 設定パラメータ
+        file_prefix: ファイル名プレフィックス（入力ファイル名由来）
     """
     print("\n=== 結果プロット ===\n")
 
@@ -439,7 +450,8 @@ def plot_density_evolution(config: Dict):
     fig, axes = plt.subplots(2, 1, figsize=(10, 8))
 
     # 圧縮計算
-    compress_log = output_dir / "pvdf_npt_compression.log"
+    compress_log_filename = f"{file_prefix}_pvdf_npt_compression.log" if file_prefix else "pvdf_npt_compression.log"
+    compress_log = output_dir / compress_log_filename
     if compress_log.exists():
         df = pd.read_csv(compress_log)
         axes[0].plot(df['time[ps]'], df['density[g/cm3]'], '-', color='#E63946', linewidth=2)
@@ -451,7 +463,8 @@ def plot_density_evolution(config: Dict):
         axes[0].grid(True, alpha=0.3)
 
     # 冷却計算
-    cooling_log = output_dir / "pvdf_npt_cooling.log"
+    cooling_log_filename = f"{file_prefix}_pvdf_npt_cooling.log" if file_prefix else "pvdf_npt_cooling.log"
+    cooling_log = output_dir / cooling_log_filename
     if cooling_log.exists():
         df = pd.read_csv(cooling_log)
         axes[1].plot(df['time[ps]'], df['density[g/cm3]'], '-', color='#457B9D', linewidth=2)
@@ -463,7 +476,10 @@ def plot_density_evolution(config: Dict):
         axes[1].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plot_path = output_dir / "density_evolution.png"
+
+    # ファイル名にプレフィックスを追加
+    plot_filename = f"{file_prefix}_density_evolution.png" if file_prefix else "density_evolution.png"
+    plot_path = output_dir / plot_filename
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     print(f"✓ グラフを保存しました: {plot_path}\n")
 
@@ -479,10 +495,17 @@ def main():
     print("  PVDFアモルファス作成プログラム")
     print("=" * 60 + "\n")
 
-    # 出力ディレクトリの作成
+    # 出力ディレクトリの作成（共通）
     output_dir = Path(CONFIG['output_dir'])
     output_dir.mkdir(exist_ok=True)
-    print(f"出力ディレクトリ: {output_dir}\n")
+
+    # 入力ファイル名に基づいてファイル名プレフィックスを生成
+    file_prefix = generate_output_filename_prefix(CONFIG.get('pvdf_chain_file'))
+
+    print(f"出力ディレクトリ: {output_dir}")
+    if file_prefix:
+        print(f"ファイル名プレフィックス: {file_prefix}")
+    print()
 
     # STEP 1-2: 初期構造生成
     atoms_initial = build_initial_structure(CONFIG)
@@ -491,8 +514,9 @@ def main():
         print("\n✗ 初期構造の生成に失敗しました")
         return
 
-    # 初期構造の保存
-    init_path = output_dir / "pvdf_initial.xyz"
+    # 初期構造の保存（ファイル名にプレフィックスを追加）
+    init_filename = f"{file_prefix}_pvdf_initial.xyz" if file_prefix else "pvdf_initial.xyz"
+    init_path = output_dir / init_filename
     write(init_path, atoms_initial)
     print(f"✓ 初期構造を保存しました: {init_path}\n")
 
@@ -505,23 +529,25 @@ def main():
         return
 
     # STEP 3: NPT圧縮
-    atoms_compressed = run_npt_compression(atoms_initial, CONFIG)
+    atoms_compressed = run_npt_compression(atoms_initial, CONFIG, file_prefix)
 
-    # 圧縮後の構造を保存
-    compressed_path = output_dir / "pvdf_compressed.xyz"
+    # 圧縮後の構造を保存（ファイル名にプレフィックスを追加）
+    compressed_filename = f"{file_prefix}_pvdf_compressed.xyz" if file_prefix else "pvdf_compressed.xyz"
+    compressed_path = output_dir / compressed_filename
     write(compressed_path, atoms_compressed)
     print(f"✓ 圧縮後の構造を保存しました: {compressed_path}\n")
 
     # STEP 4: NPT冷却 (オプション)
-    atoms_final = run_npt_cooling(atoms_compressed, CONFIG)
+    atoms_final = run_npt_cooling(atoms_compressed, CONFIG, file_prefix)
 
-    # 最終構造の保存
-    final_path = output_dir / "pvdf_final_amorphous.xyz"
+    # 最終構造の保存（ファイル名にプレフィックスを追加）
+    final_filename = f"{file_prefix}_pvdf_final_amorphous.xyz" if file_prefix else "pvdf_final_amorphous.xyz"
+    final_path = output_dir / final_filename
     write(final_path, atoms_final)
     print(f"✓ 最終構造を保存しました: {final_path}\n")
 
     # 結果プロット
-    plot_density_evolution(CONFIG)
+    plot_density_evolution(CONFIG, file_prefix)
 
     print("\n" + "=" * 60)
     print("  PVDF アモルファス作成 完了")

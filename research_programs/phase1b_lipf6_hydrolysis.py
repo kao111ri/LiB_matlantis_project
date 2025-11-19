@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import sys
 from pathlib import Path
 from time import perf_counter
 from typing import Dict, List
@@ -24,6 +25,10 @@ from ase import Atoms
 from ase.build import molecule
 from ase.io import read, write
 from ase import units
+
+# プロジェクトのutilsをインポート
+sys.path.append(str(Path(__file__).parent.parent / "LiB2_structure_ipynb"))
+from utils.io_utils import generate_output_filename_prefix
 
 # Matlantis関連のインポート
 try:
@@ -270,7 +275,7 @@ def build_lipf6_water_system(config: Dict) -> Atoms:
 # MD実行関数
 # ========================================================================
 
-def run_md_simulation(atoms: Atoms, temperature: float, config: Dict) -> str:
+def run_md_simulation(atoms: Atoms, temperature: float, config: Dict, file_prefix: str = "") -> str:
     """
     NVT-MD シミュレーションを実行する
 
@@ -278,6 +283,7 @@ def run_md_simulation(atoms: Atoms, temperature: float, config: Dict) -> str:
         atoms: 初期構造
         temperature: 温度 (K)
         config: 設定パラメータ
+        file_prefix: ファイル名プレフィックス（入力ファイル名由来）
 
     Returns:
         出力ファイル名のプレフィックス
@@ -288,8 +294,9 @@ def run_md_simulation(atoms: Atoms, temperature: float, config: Dict) -> str:
 
     print(f"\n=== MD計算開始: {temperature} K ===\n")
 
-    # ファイル名
-    fname = f"lipf6_h2o_{int(temperature)}K"
+    # ファイル名（プレフィックスを追加）
+    fname_base = f"{file_prefix}_" if file_prefix else ""
+    fname = f"{fname_base}lipf6_h2o_{int(temperature)}K"
     output_dir = config['output_dir']
 
     # 計算ステップ数
@@ -344,9 +351,13 @@ def run_md_simulation(atoms: Atoms, temperature: float, config: Dict) -> str:
 # 結果解析・プロット関数
 # ========================================================================
 
-def analyze_and_plot_results(config: Dict):
+def analyze_and_plot_results(config: Dict, file_prefix: str = ""):
     """
     シミュレーション結果を解析してプロットする
+
+    Args:
+        config: 設定パラメータ
+        file_prefix: ファイル名プレフィックス（入力ファイル名由来）
     """
     print("\n=== 結果解析・グラフ作成 ===\n")
 
@@ -358,7 +369,8 @@ def analyze_and_plot_results(config: Dict):
     results_summary = []
 
     for temp in temperatures:
-        fname = f"lipf6_h2o_{int(temp)}K"
+        fname_base = f"{file_prefix}_" if file_prefix else ""
+        fname = f"{fname_base}lipf6_h2o_{int(temp)}K"
         reaction_log = output_dir / f"{fname}_reaction.log"
 
         if not reaction_log.exists():
@@ -419,13 +431,17 @@ def analyze_and_plot_results(config: Dict):
     axes[1, 1].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plot_path = output_dir / "reaction_comparison.png"
+
+    # ファイル名にプレフィックスを追加
+    plot_filename = f"{file_prefix}_reaction_comparison.png" if file_prefix else "reaction_comparison.png"
+    plot_path = output_dir / plot_filename
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     print(f"✓ グラフを保存しました: {plot_path}\n")
 
     # サマリーテーブル
     df_summary = pd.DataFrame(results_summary)
-    summary_path = output_dir / "reaction_summary.csv"
+    summary_filename = f"{file_prefix}_reaction_summary.csv" if file_prefix else "reaction_summary.csv"
+    summary_path = output_dir / summary_filename
     df_summary.to_csv(summary_path, index=False)
     print(f"✓ サマリーテーブルを保存しました: {summary_path}\n")
 
@@ -445,16 +461,24 @@ def main():
     print("  Phase 1-B: LiPF₆加水分解検証")
     print("=" * 60 + "\n")
 
-    # 出力ディレクトリの作成
+    # 出力ディレクトリの作成（共通）
     output_dir = Path(CONFIG['output_dir'])
     output_dir.mkdir(exist_ok=True)
-    print(f"出力ディレクトリ: {output_dir}\n")
+
+    # 入力ファイル名に基づいてファイル名プレフィックスを生成
+    file_prefix = generate_output_filename_prefix(CONFIG.get('lipf6_cif_path'))
+
+    print(f"出力ディレクトリ: {output_dir}")
+    if file_prefix:
+        print(f"ファイル名プレフィックス: {file_prefix}")
+    print()
 
     # システム構築
     system = build_lipf6_water_system(CONFIG)
 
-    # 初期構造の保存
-    init_path = output_dir / "initial_structure.xyz"
+    # 初期構造の保存（ファイル名にプレフィックスを追加）
+    init_filename = f"{file_prefix}_initial_structure.xyz" if file_prefix else "initial_structure.xyz"
+    init_path = output_dir / init_filename
     write(init_path, system)
     print(f"✓ 初期構造を保存しました: {init_path}\n")
 
@@ -468,10 +492,10 @@ def main():
 
     # 各温度でMD計算を実行
     for temperature in CONFIG['temperatures']:
-        run_md_simulation(system, temperature, CONFIG)
+        run_md_simulation(system, temperature, CONFIG, file_prefix)
 
     # 結果の解析とプロット
-    analyze_and_plot_results(CONFIG)
+    analyze_and_plot_results(CONFIG, file_prefix)
 
     print("\n" + "=" * 60)
     print("  Phase 1-B 完了")
