@@ -5,9 +5,10 @@ Packmol を使ったH2O充填のデモスクリプト
 このスクリプトは、packmol_utils.pyを使用して、
 既存の構造（例: LiPF6結晶）に水分子を充填する方法を示します。
 
-【新機能】
-- custom_box_size: H2O充填セルのサイズを指定可能
-- n_molecules: 充填する水分子数を直接指定可能
+【主な機能】
+- structure_cell_size: 構造全体のセルサイズを指定可能
+- water_fill_cell_size: 水を充填する領域のサイズを指定可能
+- density_g_cm3: 密度を指定して水分子数を自動計算
 - host_atoms: 充填したい構造（Atomsオブジェクト）を変更可能
 """
 
@@ -88,7 +89,7 @@ def demo2_custom_box_size():
     solvated = fill_box_with_packmol(
         host_atoms=host,
         solvent_type='H2O',
-        custom_box_size=custom_size,  # ★ カスタムボックスサイズ
+        structure_cell_size=custom_size,  # ★ 構造セルサイズを指定
         density_g_cm3=1.0,
         tolerance=2.0,
         verbose=True
@@ -103,13 +104,13 @@ def demo2_custom_box_size():
     print(f"  総原子数: {len(solvated)}\n")
 
 
-def demo3_specify_n_molecules():
+def demo3_specify_density():
     """
-    デモ3: 水分子数を直接指定
-    密度ではなく、充填する水分子数を直接指定する
+    デモ3: 特定の密度で水を充填
+    密度を指定して水分子を充填する
     """
     print("\n" + "=" * 70)
-    print("【デモ3】水分子数を直接指定")
+    print("【デモ3】特定の密度で水を充填")
     print("=" * 70 + "\n")
 
     # Al構造を作成
@@ -118,20 +119,20 @@ def demo3_specify_n_molecules():
     print(f"ホスト構造: {host.get_chemical_formula()}")
     print(f"セルサイズ: {host.cell.cellpar()[:3].round(2)} Å")
 
-    # 正確に150個のH2O分子を充填
-    n_water = 150
-    print(f"充填する水分子数: {n_water}")
+    # 高密度で水を充填
+    water_density = 1.0  # g/cm³
+    print(f"充填する水の密度: {water_density} g/cm³")
 
     solvated = fill_box_with_packmol(
         host_atoms=host,
         solvent_type='H2O',
-        n_molecules=n_water,  # ★ 分子数を直接指定
+        density_g_cm3=water_density,  # ★ 密度を指定
         tolerance=2.0,
         verbose=True
     )
 
     # 結果を保存
-    output_path = Path("demo_results") / "demo3_n_molecules.xyz"
+    output_path = Path("demo_results") / "demo3_density.xyz"
     write(output_path, solvated)
 
     print(f"\n✓ 結果を保存しました: {output_path}")
@@ -178,7 +179,7 @@ def demo4_different_solvents():
 def demo5_combined_options():
     """
     デモ5: 複数オプションの組み合わせ
-    カスタムボックス + 分子数指定 + 異なる溶媒
+    構造セルサイズと水充填領域サイズを個別に指定
     """
     print("\n" + "=" * 70)
     print("【デモ5】複数オプションの組み合わせ")
@@ -197,18 +198,19 @@ def demo5_combined_options():
     print(f"ホスト構造: {host.get_chemical_formula()}")
     print(f"元のセルサイズ: {host.cell.cellpar()[:3].round(2)} Å")
 
-    # カスタムボックス + 分子数指定
-    custom_size = (20.0, 20.0, 25.0)
-    n_water = 200
+    # 構造セルサイズと水充填領域を個別に指定
+    structure_size = (25.0, 25.0, 30.0)  # 構造全体のセルサイズ
+    water_fill_size = (20.0, 20.0, 25.0)  # 水を充填する領域（中心に配置）
 
-    print(f"カスタムボックスサイズ: {custom_size} Å")
-    print(f"充填する水分子数: {n_water}")
+    print(f"構造セルサイズ: {structure_size} Å")
+    print(f"水充填領域サイズ: {water_fill_size} Å")
 
     solvated = fill_box_with_packmol(
         host_atoms=host,
         solvent_type='H2O',
-        custom_box_size=custom_size,  # ★ カスタムボックス
-        n_molecules=n_water,           # ★ 分子数指定
+        structure_cell_size=structure_size,      # ★ 構造セルサイズ
+        water_fill_cell_size=water_fill_size,    # ★ 水充填領域サイズ
+        density_g_cm3=0.9,
         tolerance=2.2,
         verbose=True
     )
@@ -227,7 +229,7 @@ def main():
     """メイン実行関数"""
     print("\n" + "=" * 70)
     print("  Packmol H2O充填デモスクリプト")
-    print("  新機能: custom_box_size, n_molecules オプション")
+    print("  主な機能: structure_cell_size, water_fill_cell_size オプション")
     print("=" * 70)
 
     # Packmolの確認
@@ -254,7 +256,7 @@ def main():
         print(f"✗ デモ2エラー: {e}\n")
 
     try:
-        demo3_specify_n_molecules()
+        demo3_specify_density()
     except Exception as e:
         print(f"✗ デモ3エラー: {e}\n")
 
