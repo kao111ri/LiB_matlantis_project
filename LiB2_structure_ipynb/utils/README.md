@@ -58,84 +58,21 @@ results = run_md_simulation(
 
 ### 2. 最適化関連 (`optimization_utils.py`)
 
-Matlantis PFPを使った構造最適化。複数のオプティマイザー、最適化履歴の追跡、可視化機能を提供。
+Matlantisを使った構造最適化。
 
-**主要な関数・クラス:**
-- `MatlantisOptimizer` - 最適化エンジンクラス（FIRE, LBFGS, BFGS対応）
-- `optimize_structure_with_pfp()` - 統合最適化関数（推奨）
-- `analyze_optimization_trajectory()` - 最適化結果の解析と可視化
-- `run_matlantis_optimization()` - 従来版（FireLBFGS統合）
+**主要な関数:**
+- `run_matlantis_optimization()` - 構造最適化を実行
 
-**使用例1: 統合関数（推奨）**
+**使用例:**
 ```python
-from utils import optimize_structure_with_pfp
+from utils import run_matlantis_optimization
 
-# 最適化、保存、解析を一括実行
-optimized_atoms, results = optimize_structure_with_pfp(
+optimized_atoms = run_matlantis_optimization(
     atoms=atoms,
-    output_dir="optimization_results",
-    name="my_structure",
-    optimizer='FIRE',
-    fmax=0.05,
-    steps=200,
-    model_version='v7.0.0',
-    calc_mode='CRYSTAL_U0',
-    fix_bottom_layers=3.0,  # 下層固定（オプション）
-)
-
-print(f"収束: {results['optimization_info']['converged']}")
-print(f"エネルギー変化: {results['optimization_info']['energy_change']:.4f} eV")
-```
-
-**使用例2: MatlantisOptimizerクラス**
-```python
-from utils import MatlantisOptimizer
-
-# オプティマイザーの初期化
-optimizer = MatlantisOptimizer(
-    model_version='v7.0.0',
-    calc_mode='CRYSTAL_U0',
-    verbose=True
-)
-
-# FIRE最適化
-optimized, info = optimizer.optimize(
-    atoms=atoms,
-    optimizer='FIRE',
-    fmax=0.05,
-    steps=200,
     trajectory_path="opt.traj",
-)
-
-# LBFGS最適化
-optimized, info = optimizer.optimize(
-    atoms=atoms,
-    optimizer='LBFGS',
-    fmax=0.01,
-    steps=100,
+    fmax=0.05
 )
 ```
-
-**使用例3: 最適化結果の解析**
-```python
-from utils import analyze_optimization_trajectory
-
-analysis = analyze_optimization_trajectory(
-    trajectory_path="opt.traj",
-    output_dir="analysis_results",
-)
-
-print(f"エネルギー変化: {analysis['energy_change']:.4f} eV")
-print(f"最終最大力: {analysis['final_fmax']:.4f} eV/Å")
-```
-
-**主な機能:**
-- ✅ 複数のオプティマイザー（FIRE, LBFGS, BFGS）
-- ✅ 下層原子の自動固定（表面計算向け）
-- ✅ 最適化履歴の自動追跡
-- ✅ エネルギーと力の収束グラフ作成
-- ✅ 詳細なログ出力
-- ✅ エラーハンドリング
 
 ### 3. 構造操作関連 (`structure_utils.py`)
 
@@ -257,14 +194,6 @@ from utils import *
 ```
 
 ## 更新履歴
-
-- v1.1.0 (2025-11-21): 最適化機能の大幅拡張
-  - `MatlantisOptimizer`クラスを追加（FIRE, LBFGS, BFGS対応）
-  - `optimize_structure_with_pfp()`統合関数を追加
-  - `analyze_optimization_trajectory()`解析・可視化機能を追加
-  - 下層原子固定機能を追加
-  - 最適化履歴の自動追跡機能を追加
-  - エネルギーと力の収束グラフ作成機能を追加
 
 - v1.0.0 (2025-10-31): 初版リリース
   - MD、最適化、構造操作、解析、ファイルI/O関連の機能を実装

@@ -22,9 +22,6 @@ from .md_utils import (
 # 最適化関連
 from .optimization_utils import (
     run_matlantis_optimization,
-    MatlantisOptimizer,
-    optimize_structure_with_pfp,
-    analyze_optimization_trajectory,
 )
 
 # 構造操作関連
@@ -59,9 +56,6 @@ __all__ = [
     'run_constant_temp_md',
     # 最適化関連
     'run_matlantis_optimization',
-    'MatlantisOptimizer',
-    'optimize_structure_with_pfp',
-    'analyze_optimization_trajectory',
     # 構造操作関連
     'build_interface',
     'calculate_density',
