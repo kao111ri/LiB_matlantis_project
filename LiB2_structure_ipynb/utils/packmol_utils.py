@@ -326,21 +326,30 @@ end structure
 # --- 使用例 ---
 if __name__ == "__main__":
     from ase.build import bulk
-    
+    from ase.io import read as ase_read
+
+    print("\n" + "=" * 70)
     print("Packmol連携テストを実行します...")
-    
+    print("=" * 70 + "\n")
+
+    # ========================================
+    # テスト1: 基本的な使い方（デフォルト）
+    # ========================================
+    print("【テスト1】基本的な使い方")
+    print("-" * 50)
+
     # テスト: 斜交セルを持つ構造を作成 (Al FCCを歪ませる)
     host = bulk('Al', 'fcc', a=4.05).repeat((2, 2, 2))
     # 意図的に斜めにする (Triclinic化)
     cell = host.get_cell()
     cell[1, 0] = 3.0 # Shearを大きくする
     host.set_cell(cell, scale_atoms=True)
-    
+
     # 空隙を作る（テスト用）
     del host[[atom.index for atom in host if atom.index % 3 == 0]]
 
     print(f"Host (Original): {host.cell.cellpar().round(3)}")
-    
+
     if check_packmol_command():
         try:
             packed_structure = fill_box_with_packmol(
@@ -350,7 +359,99 @@ if __name__ == "__main__":
                 tolerance=2.0,
                 verbose=True
             )
-            write('packmol_ortho_result.xyz', packed_structure)
-            print("\n正常に終了しました。")
+            write('packmol_test1_default.xyz', packed_structure)
+            print("✓ テスト1完了: packmol_test1_default.xyz")
         except Exception as e:
-            print(f"\nエラー: {e}")
+            print(f"✗ テスト1エラー: {e}")
+    else:
+        print("✗ Packmolが見つかりません。インストールしてください。")
+        print("  例: conda install -c conda-forge packmol")
+
+    # ========================================
+    # テスト2: カスタムボックスサイズ
+    # ========================================
+    print("\n" + "=" * 70)
+    print("【テスト2】カスタムボックスサイズの指定")
+    print("-" * 50)
+
+    host2 = bulk('Al', 'fcc', a=4.05).repeat((2, 2, 1))
+    print(f"Host2 元のセル: {host2.cell.cellpar()[:3].round(3)}")
+
+    if check_packmol_command():
+        try:
+            # 20x20x30Åの大きなボックスに拡張して水を充填
+            packed_structure2 = fill_box_with_packmol(
+                host_atoms=host2,
+                solvent_type='H2O',
+                custom_box_size=(20.0, 20.0, 30.0),  # カスタムボックスサイズ
+                density_g_cm3=1.0,
+                tolerance=2.0,
+                verbose=True
+            )
+            write('packmol_test2_custom_box.xyz', packed_structure2)
+            print("✓ テスト2完了: packmol_test2_custom_box.xyz")
+        except Exception as e:
+            print(f"✗ テスト2エラー: {e}")
+
+    # ========================================
+    # テスト3: 分子数を直接指定
+    # ========================================
+    print("\n" + "=" * 70)
+    print("【テスト3】分子数を直接指定")
+    print("-" * 50)
+
+    host3 = bulk('Al', 'fcc', a=4.05).repeat((3, 3, 2))
+    print(f"Host3 セル: {host3.cell.cellpar()[:3].round(3)}")
+
+    if check_packmol_command():
+        try:
+            # 100個のH2O分子を充填
+            packed_structure3 = fill_box_with_packmol(
+                host_atoms=host3,
+                solvent_type='H2O',
+                n_molecules=100,  # 分子数を直接指定
+                tolerance=2.0,
+                verbose=True
+            )
+            write('packmol_test3_n_molecules.xyz', packed_structure3)
+            print("✓ テスト3完了: packmol_test3_n_molecules.xyz")
+        except Exception as e:
+            print(f"✗ テスト3エラー: {e}")
+
+    # ========================================
+    # テスト4: CIFファイルから読み込んだ構造を使用
+    # ========================================
+    print("\n" + "=" * 70)
+    print("【テスト4】CIFファイルから読み込んだ構造（LiPF6など）")
+    print("-" * 50)
+
+    # 実際のファイルパスは環境に応じて変更してください
+    lipf6_path = "/home/jovyan/Kaori/MD/input/LiPF6.cif"
+
+    if os.path.exists(lipf6_path) and check_packmol_command():
+        try:
+            lipf6_atoms = ase_read(lipf6_path)
+            print(f"LiPF6構造: {lipf6_atoms.get_chemical_formula()}")
+            print(f"元のセル: {lipf6_atoms.cell.cellpar()[:3].round(3)}")
+
+            # LiPF6構造の周りに水を充填
+            packed_lipf6_h2o = fill_box_with_packmol(
+                host_atoms=lipf6_atoms,
+                solvent_type='H2O',
+                density_g_cm3=0.9,  # 緩めの密度
+                tolerance=2.2,
+                verbose=True
+            )
+            write('packmol_test4_lipf6_h2o.xyz', packed_lipf6_h2o)
+            print("✓ テスト4完了: packmol_test4_lipf6_h2o.xyz")
+        except Exception as e:
+            print(f"✗ テスト4エラー: {e}")
+    else:
+        if not os.path.exists(lipf6_path):
+            print(f"✗ LiPF6ファイルが見つかりません: {lipf6_path}")
+        else:
+            print("✗ Packmolが見つかりません")
+
+    print("\n" + "=" * 70)
+    print("全テスト完了")
+    print("=" * 70 + "\n")
