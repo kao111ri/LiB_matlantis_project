@@ -120,7 +120,9 @@ def fill_box_with_packmol(
     packmol_path: str = DEFAULT_PACKMOL_PATH,
     keep_temp_files: bool = False,
     verbose: bool = True,
-    seed: int = -1
+    seed: int = -1,
+    custom_box_size: Optional[tuple] = None,
+    n_molecules: Optional[int] = None
 ) -> Atoms:
     """
     Packmolを使用して既存構造の隙間に溶媒分子を充填する関数
@@ -144,6 +146,13 @@ def fill_box_with_packmol(
         詳細な出力を表示するか
     seed : int
         乱数シード (-1の場合はランダム)
+    custom_box_size : Optional[tuple]
+        カスタムボックスサイズ (a, b, c) in Angstrom。
+        Noneの場合はhost_atomsのセルサイズを使用します。
+        例: (20.0, 20.0, 30.0)
+    n_molecules : Optional[int]
+        充填する溶媒分子数を直接指定する場合。
+        Noneの場合は密度から自動計算されます。
 
     Returns
     -------
@@ -167,11 +176,36 @@ def fill_box_with_packmol(
     working_host = host_atoms.copy()
     if not working_host.cell.orthorhombic:
         working_host = force_orthorhombic_by_cropping(working_host, verbose=verbose)
-    
+
+    # カスタムボックスサイズの処理
+    if custom_box_size is not None:
+        if len(custom_box_size) != 3:
+            raise ValueError("custom_box_size は (a, b, c) の3要素のタプルである必要があります")
+
+        cell_lengths = np.array(custom_box_size)
+        vol_A3 = np.prod(cell_lengths)
+
+        # ホスト構造のセルを拡張（必要に応じて）
+        original_cell = working_host.cell.cellpar()[:3]
+        if np.any(cell_lengths > original_cell):
+            # カスタムボックスに合わせてセルを拡張
+            working_host.set_cell(np.diag(cell_lengths))
+            if verbose:
+                print(f"カスタムボックスサイズ: {cell_lengths}")
+                print(f"元のセルサイズから拡張しました")
+        else:
+            # カスタムボックスが小さい場合は警告
+            if verbose:
+                print(f"警告: カスタムボックスサイズ {cell_lengths} が元のセル {original_cell} より小さいです")
+    else:
+        # デフォルト: ホスト構造のセルサイズを使用
+        cell_lengths = working_host.cell.cellpar()[:3]
+        vol_A3 = working_host.get_volume()
+
     # 作業用の一時ディレクトリを作成
     with tempfile.TemporaryDirectory() as tmpdir:
         work_dir = "." if keep_temp_files else tmpdir
-        
+
         # ファイル名の定義
         host_xyz = os.path.join(work_dir, "host_temp.xyz")
         solvent_xyz = os.path.join(work_dir, "solvent_temp.xyz")
@@ -187,17 +221,20 @@ def fill_box_with_packmol(
         solvent_mass = solvent_atoms.get_masses().sum()
 
         # 3. 必要な分子数の計算
-        # 整形後のセル情報を使用
-        cell_lengths = working_host.cell.cellpar()[:3] # a, b, c
-        vol_A3 = working_host.get_volume()
-        
-        n_molecules = estimate_required_molecules(vol_A3, solvent_mass, density_g_cm3)
-
-        if verbose:
-            print(f"溶媒: {solvent_type} (Mass: {solvent_mass:.2f})")
-            print(f"整形後セル体積: {vol_A3:.2f} A^3")
-            print(f"目標密度: {density_g_cm3:.2f} g/cm^3")
-            print(f"計算された分子数: {n_molecules}")
+        if n_molecules is None:
+            # 密度から自動計算
+            n_molecules = estimate_required_molecules(vol_A3, solvent_mass, density_g_cm3)
+            if verbose:
+                print(f"溶媒: {solvent_type} (Mass: {solvent_mass:.2f})")
+                print(f"セル体積: {vol_A3:.2f} A^3")
+                print(f"目標密度: {density_g_cm3:.2f} g/cm^3")
+                print(f"計算された分子数: {n_molecules}")
+        else:
+            # 分子数が直接指定されている場合
+            if verbose:
+                print(f"溶媒: {solvent_type} (Mass: {solvent_mass:.2f})")
+                print(f"セル体積: {vol_A3:.2f} A^3")
+                print(f"指定された分子数: {n_molecules}")
 
         # 4. ファイルの書き出し
         write(host_xyz, working_host)
@@ -275,21 +312,30 @@ end structure
 # --- 使用例 ---
 if __name__ == "__main__":
     from ase.build import bulk
-    
+    from ase.io import read as ase_read
+
+    print("\n" + "=" * 70)
     print("Packmol連携テストを実行します...")
-    
+    print("=" * 70 + "\n")
+
+    # ========================================
+    # テスト1: 基本的な使い方（デフォルト）
+    # ========================================
+    print("【テスト1】基本的な使い方")
+    print("-" * 50)
+
     # テスト: 斜交セルを持つ構造を作成 (Al FCCを歪ませる)
     host = bulk('Al', 'fcc', a=4.05).repeat((2, 2, 2))
     # 意図的に斜めにする (Triclinic化)
     cell = host.get_cell()
     cell[1, 0] = 3.0 # Shearを大きくする
     host.set_cell(cell, scale_atoms=True)
-    
+
     # 空隙を作る（テスト用）
     del host[[atom.index for atom in host if atom.index % 3 == 0]]
 
     print(f"Host (Original): {host.cell.cellpar().round(3)}")
-    
+
     if check_packmol_command():
         try:
             packed_structure = fill_box_with_packmol(
@@ -299,7 +345,99 @@ if __name__ == "__main__":
                 tolerance=2.0,
                 verbose=True
             )
-            write('packmol_ortho_result.xyz', packed_structure)
-            print("\n正常に終了しました。")
+            write('packmol_test1_default.xyz', packed_structure)
+            print("✓ テスト1完了: packmol_test1_default.xyz")
         except Exception as e:
-            print(f"\nエラー: {e}")
+            print(f"✗ テスト1エラー: {e}")
+    else:
+        print("✗ Packmolが見つかりません。インストールしてください。")
+        print("  例: conda install -c conda-forge packmol")
+
+    # ========================================
+    # テスト2: カスタムボックスサイズ
+    # ========================================
+    print("\n" + "=" * 70)
+    print("【テスト2】カスタムボックスサイズの指定")
+    print("-" * 50)
+
+    host2 = bulk('Al', 'fcc', a=4.05).repeat((2, 2, 1))
+    print(f"Host2 元のセル: {host2.cell.cellpar()[:3].round(3)}")
+
+    if check_packmol_command():
+        try:
+            # 20x20x30Åの大きなボックスに拡張して水を充填
+            packed_structure2 = fill_box_with_packmol(
+                host_atoms=host2,
+                solvent_type='H2O',
+                custom_box_size=(20.0, 20.0, 30.0),  # カスタムボックスサイズ
+                density_g_cm3=1.0,
+                tolerance=2.0,
+                verbose=True
+            )
+            write('packmol_test2_custom_box.xyz', packed_structure2)
+            print("✓ テスト2完了: packmol_test2_custom_box.xyz")
+        except Exception as e:
+            print(f"✗ テスト2エラー: {e}")
+
+    # ========================================
+    # テスト3: 分子数を直接指定
+    # ========================================
+    print("\n" + "=" * 70)
+    print("【テスト3】分子数を直接指定")
+    print("-" * 50)
+
+    host3 = bulk('Al', 'fcc', a=4.05).repeat((3, 3, 2))
+    print(f"Host3 セル: {host3.cell.cellpar()[:3].round(3)}")
+
+    if check_packmol_command():
+        try:
+            # 100個のH2O分子を充填
+            packed_structure3 = fill_box_with_packmol(
+                host_atoms=host3,
+                solvent_type='H2O',
+                n_molecules=100,  # 分子数を直接指定
+                tolerance=2.0,
+                verbose=True
+            )
+            write('packmol_test3_n_molecules.xyz', packed_structure3)
+            print("✓ テスト3完了: packmol_test3_n_molecules.xyz")
+        except Exception as e:
+            print(f"✗ テスト3エラー: {e}")
+
+    # ========================================
+    # テスト4: CIFファイルから読み込んだ構造を使用
+    # ========================================
+    print("\n" + "=" * 70)
+    print("【テスト4】CIFファイルから読み込んだ構造（LiPF6など）")
+    print("-" * 50)
+
+    # 実際のファイルパスは環境に応じて変更してください
+    lipf6_path = "/home/jovyan/Kaori/MD/input/LiPF6.cif"
+
+    if os.path.exists(lipf6_path) and check_packmol_command():
+        try:
+            lipf6_atoms = ase_read(lipf6_path)
+            print(f"LiPF6構造: {lipf6_atoms.get_chemical_formula()}")
+            print(f"元のセル: {lipf6_atoms.cell.cellpar()[:3].round(3)}")
+
+            # LiPF6構造の周りに水を充填
+            packed_lipf6_h2o = fill_box_with_packmol(
+                host_atoms=lipf6_atoms,
+                solvent_type='H2O',
+                density_g_cm3=0.9,  # 緩めの密度
+                tolerance=2.2,
+                verbose=True
+            )
+            write('packmol_test4_lipf6_h2o.xyz', packed_lipf6_h2o)
+            print("✓ テスト4完了: packmol_test4_lipf6_h2o.xyz")
+        except Exception as e:
+            print(f"✗ テスト4エラー: {e}")
+    else:
+        if not os.path.exists(lipf6_path):
+            print(f"✗ LiPF6ファイルが見つかりません: {lipf6_path}")
+        else:
+            print("✗ Packmolが見つかりません")
+
+    print("\n" + "=" * 70)
+    print("全テスト完了")
+    print("=" * 70 + "\n")

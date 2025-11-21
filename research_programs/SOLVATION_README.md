@@ -6,17 +6,73 @@ LiPF₆やPVDFなどの構造に水分子を充填して溶媒和系を作成す
 
 ### ユーティリティモジュール
 - **`LiB2_structure_ipynb/utils/solvation_utils.py`**
-  - 汎用的な溶媒充填関数
+  - 汎用的な溶媒充填関数（ランダム配置）
   - LiPF₆/PVDF専用のラッパー関数
   - 見積もり計算ヘルパー
+- **`LiB2_structure_ipynb/utils/packmol_utils.py`** ⭐ NEW
+  - **Packmol**を使った高速・確実な溶媒充填
+  - カスタムボックスサイズ指定機能
+  - 分子数の直接指定機能
+  - 斜交セルの自動処理
 
-### デモノートブック
-- **`demo_solvation_lipf6_water.ipynb`** - LiPF₆ + 水の系
-- **`demo_solvation_pvdf_water.ipynb`** - PVDF + 水の系
+### デモノートブック / スクリプト
+- **`demo_solvation_lipf6_water.ipynb`** - LiPF₆ + 水の系（ランダム配置）
+- **`demo_solvation_pvdf_water.ipynb`** - PVDF + 水の系（ランダム配置）
+- **`demo_packmol_water_filling.py`** ⭐ NEW - Packmolを使ったH2O充填デモ
 
 ## 🚀 使い方
 
-### 基本的な使用例
+### 方法1: Packmol を使った充填 ⭐ 推奨
+
+**メリット**: 高速・確実・カスタマイズ性が高い
+
+```python
+from ase.io import read, write
+from utils.packmol_utils import fill_box_with_packmol
+
+# LiPF6構造を読み込み
+lipf6 = read('/home/jovyan/Kaori/MD/input/LiPF6.cif')
+
+# 基本的な使い方: 密度指定
+solvated = fill_box_with_packmol(
+    host_atoms=lipf6,
+    solvent_type='H2O',
+    density_g_cm3=0.9,
+    tolerance=2.2,
+    verbose=True
+)
+
+# カスタムボックスサイズを指定（例: 25x25x30Å）
+solvated = fill_box_with_packmol(
+    host_atoms=lipf6,
+    solvent_type='H2O',
+    custom_box_size=(25.0, 25.0, 30.0),  # ★ 新機能
+    density_g_cm3=1.0,
+    tolerance=2.0,
+    verbose=True
+)
+
+# 分子数を直接指定
+solvated = fill_box_with_packmol(
+    host_atoms=lipf6,
+    solvent_type='H2O',
+    n_molecules=200,  # ★ 新機能
+    tolerance=2.2,
+    verbose=True
+)
+
+# 保存
+write('lipf6_water.xyz', solvated)
+```
+
+**必須**: `packmol` コマンドがインストールされている必要があります
+```bash
+conda install -c conda-forge packmol
+```
+
+### 方法2: ランダム配置を使った充填
+
+**メリット**: 外部依存なし、細かい制御が可能
 
 ```python
 from ase.io import read
@@ -53,7 +109,38 @@ solvated = fill_box_with_molecules(
 
 ## 📊 主な機能
 
-### 1. 密度ベースの分子数計算
+### 🆕 Packmol方式の新機能
+
+#### 1. カスタムボックスサイズ指定
+セルサイズを自由に設定して水を充填：
+```python
+solvated = fill_box_with_packmol(
+    host_atoms=structure,
+    solvent_type='H2O',
+    custom_box_size=(30.0, 30.0, 40.0),  # x, y, z (Å)
+    density_g_cm3=1.0
+)
+```
+
+#### 2. 分子数の直接指定
+密度ではなく、充填する分子数を直接指定：
+```python
+solvated = fill_box_with_packmol(
+    host_atoms=structure,
+    solvent_type='H2O',
+    n_molecules=500  # 正確に500個のH2O
+)
+```
+
+#### 3. 斜交セルの自動処理
+非直交セルを自動的に直方体に変換してPackmolで処理
+
+#### 4. 高速・確実な配置
+Packmolの最適化アルゴリズムで原子の重なりを確実に回避
+
+### 共通機能（両方式）
+
+#### 1. 密度ベースの分子数計算
 指定した密度（g/cm³）から必要な溶媒分子数を自動計算：
 
 ```python
@@ -61,12 +148,26 @@ estimate = estimate_required_molecules(atoms, 'H2O', 1.0)
 print(f"必要な水分子数: {estimate['n_molecules_required']}")
 ```
 
-### 2. ランダム配置と重なりチェック
+#### 2. ランダム配置と重なりチェック（solvation_utils.py）
 - ランダムな位置と回転で分子を配置
 - 既存原子との距離チェック
 - 周期境界条件（PBC）対応
 
-### 3. カスタマイズ可能なパラメータ
+### カスタマイズ可能なパラメータ
+
+#### Packmol方式 (`packmol_utils.py`)
+
+| パラメータ | 説明 | デフォルト |
+|----------|------|----------|
+| `host_atoms` | 充填対象の構造 | 必須 |
+| `solvent_type` | 溶媒分子（H2O, CH3OH等） | 'H2O' |
+| `density_g_cm3` | 溶媒の目標密度 | 1.0 |
+| `tolerance` | 原子間最小距離 (Å) | 2.0 |
+| `custom_box_size` | カスタムボックス (a, b, c) | None (自動) |
+| `n_molecules` | 分子数を直接指定 | None (密度から計算) |
+| `seed` | 乱数シード | -1 (ランダム) |
+
+#### ランダム配置方式 (`solvation_utils.py`)
 
 | パラメータ | 説明 | デフォルト |
 |----------|------|----------|
@@ -238,6 +339,9 @@ solvation_results/
 
 ## 💡 今後の拡張
 
+- [x] ✅ **Packmol統合** - 高速・確実な充填（完了）
+- [x] ✅ **カスタムボックスサイズ** - 柔軟なセルサイズ設定（完了）
+- [x] ✅ **分子数直接指定** - 密度以外の指定方法（完了）
 - [ ] 複数の溶媒種の同時配置
 - [ ] グリッドベースの高速配置アルゴリズム
 - [ ] イオン（Li⁺, PF₆⁻）の個別配置
@@ -252,5 +356,5 @@ solvation_results/
 ---
 
 **作成日**: 2025-11-21
-**更新日**: 2025-11-21
-**バージョン**: 1.0
+**更新日**: 2025-11-21 (Packmol機能追加)
+**バージョン**: 1.1
