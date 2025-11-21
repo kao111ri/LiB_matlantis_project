@@ -121,8 +121,8 @@ def fill_box_with_packmol(
     keep_temp_files: bool = False,
     verbose: bool = True,
     seed: int = -1,
-    custom_box_size: Optional[tuple] = None,
-    n_molecules: Optional[int] = None
+    structure_cell_size: Optional[Union[float, List[float]]] = None,
+    water_fill_cell_size: Optional[Union[float, List[float]]] = None
 ) -> Atoms:
     """
     Packmolを使用して既存構造の隙間に溶媒分子を充填する関数
@@ -146,13 +146,14 @@ def fill_box_with_packmol(
         詳細な出力を表示するか
     seed : int
         乱数シード (-1の場合はランダム)
-    custom_box_size : Optional[tuple]
-        カスタムボックスサイズ (a, b, c) in Angstrom。
-        Noneの場合はhost_atomsのセルサイズを使用します。
-        例: (20.0, 20.0, 30.0)
-    n_molecules : Optional[int]
-        充填する溶媒分子数を直接指定する場合。
-        Noneの場合は密度から自動計算されます。
+    structure_cell_size : Optional[Union[float, List[float]]]
+        構造全体のセルサイズ (Å)。
+        float の場合は立方体、List[float] の場合は [a, b, c]。
+        指定しない場合は host_atoms のセルサイズを使用。
+    water_fill_cell_size : Optional[Union[float, List[float]]]
+        水分子を充填する領域のサイズ (Å)。
+        float の場合は立方体、List[float] の場合は [a, b, c]。
+        指定しない場合は structure_cell_size と同じ。
 
     Returns
     -------
@@ -177,30 +178,43 @@ def fill_box_with_packmol(
     if not working_host.cell.orthorhombic:
         working_host = force_orthorhombic_by_cropping(working_host, verbose=verbose)
 
-    # カスタムボックスサイズの処理
-    if custom_box_size is not None:
-        if len(custom_box_size) != 3:
-            raise ValueError("custom_box_size は (a, b, c) の3要素のタプルである必要があります")
-
-        cell_lengths = np.array(custom_box_size)
-        vol_A3 = np.prod(cell_lengths)
-
-        # ホスト構造のセルを拡張（必要に応じて）
-        original_cell = working_host.cell.cellpar()[:3]
-        if np.any(cell_lengths > original_cell):
-            # カスタムボックスに合わせてセルを拡張
-            working_host.set_cell(np.diag(cell_lengths))
-            if verbose:
-                print(f"カスタムボックスサイズ: {cell_lengths}")
-                print(f"元のセルサイズから拡張しました")
-        else:
-            # カスタムボックスが小さい場合は警告
-            if verbose:
-                print(f"警告: カスタムボックスサイズ {cell_lengths} が元のセル {original_cell} より小さいです")
+    # 1.5. セルサイズの処理
+    # structure_cell_size の解析
+    if structure_cell_size is None:
+        # デフォルト: host_atoms のセルサイズを使用
+        final_cell_lengths = working_host.cell.cellpar()[:3]  # [a, b, c]
     else:
-        # デフォルト: ホスト構造のセルサイズを使用
-        cell_lengths = working_host.cell.cellpar()[:3]
-        vol_A3 = working_host.get_volume()
+        # structure_cell_size が指定された場合
+        if isinstance(structure_cell_size, (int, float)):
+            # スカラー値の場合は立方体
+            final_cell_lengths = np.array([structure_cell_size] * 3)
+        else:
+            # リストの場合
+            final_cell_lengths = np.array(structure_cell_size)
+            if len(final_cell_lengths) != 3:
+                raise ValueError("structure_cell_size は float または長さ3のリストである必要があります")
+
+    # water_fill_cell_size の解析
+    if water_fill_cell_size is None:
+        # デフォルト: structure_cell_size と同じ
+        water_box_size = final_cell_lengths.copy()
+    else:
+        if isinstance(water_fill_cell_size, (int, float)):
+            # スカラー値の場合は立方体
+            water_box_size = np.array([water_fill_cell_size] * 3)
+        else:
+            # リストの場合
+            water_box_size = np.array(water_fill_cell_size)
+            if len(water_box_size) != 3:
+                raise ValueError("water_fill_cell_size は float または長さ3のリストである必要があります")
+
+    # 水充填領域が構造セルサイズを超えていないかチェック
+    if np.any(water_box_size > final_cell_lengths):
+        raise ValueError("water_fill_cell_size が structure_cell_size を超えています")
+
+    # 水を充填する領域の中心配置（構造セルの中心に配置）
+    water_box_min = (final_cell_lengths - water_box_size) / 2.0
+    water_box_max = water_box_min + water_box_size
 
     # 作業用の一時ディレクトリを作成
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -220,29 +234,28 @@ def fill_box_with_packmol(
 
         solvent_mass = solvent_atoms.get_masses().sum()
 
-        # 3. 必要な分子数の計算
-        if n_molecules is None:
-            # 密度から自動計算
-            n_molecules = estimate_required_molecules(vol_A3, solvent_mass, density_g_cm3)
-            if verbose:
-                print(f"溶媒: {solvent_type} (Mass: {solvent_mass:.2f})")
-                print(f"セル体積: {vol_A3:.2f} A^3")
-                print(f"目標密度: {density_g_cm3:.2f} g/cm^3")
-                print(f"計算された分子数: {n_molecules}")
-        else:
-            # 分子数が直接指定されている場合
-            if verbose:
-                print(f"溶媒: {solvent_type} (Mass: {solvent_mass:.2f})")
-                print(f"セル体積: {vol_A3:.2f} A^3")
-                print(f"指定された分子数: {n_molecules}")
+        # 3. 必要な分子数の計算（水充填領域の体積を使用）
+        water_fill_vol_A3 = np.prod(water_box_size)
+
+        n_molecules = estimate_required_molecules(water_fill_vol_A3, solvent_mass, density_g_cm3)
+
+        if verbose:
+            print(f"溶媒: {solvent_type} (Mass: {solvent_mass:.2f})")
+            print(f"構造セルサイズ: {final_cell_lengths}")
+            print(f"水充填領域サイズ: {water_box_size}")
+            print(f"水充填領域体積: {water_fill_vol_A3:.2f} A^3")
+            print(f"目標密度: {density_g_cm3:.2f} g/cm^3")
+            print(f"計算された分子数: {n_molecules}")
 
         # 4. ファイルの書き出し
+        # ホスト構造のセルサイズを最終セルサイズに設定
+        working_host.set_cell(np.diag(final_cell_lengths))
         write(host_xyz, working_host)
         write(solvent_xyz, solvent_atoms)
 
         # 5. Packmol入力ファイルの作成
-        # 直方体領域(0,0,0) -> (a,b,c)を指定
-        box_str = f"0. 0. 0. {cell_lengths[0]:.3f} {cell_lengths[1]:.3f} {cell_lengths[2]:.3f}"
+        # 水充填領域を指定
+        box_str = f"{water_box_min[0]:.3f} {water_box_min[1]:.3f} {water_box_min[2]:.3f} {water_box_max[0]:.3f} {water_box_max[1]:.3f} {water_box_max[2]:.3f}"
 
         inp_content = f"""
 # Packmol input generated by Python script
@@ -287,21 +300,22 @@ end structure
             print(result.stdout)
             print(result.stderr)
             raise RuntimeError("Packmolの実行に失敗しました。")
-        
+
         if "Success!" in result.stdout or os.path.exists(output_xyz):
             if verbose:
                 print("Packmol実行成功。構造を読み込んでいます...")
-            
+
             # 生成された構造を読み込む
             packed_atoms = read(output_xyz)
-            
-            # 整形後の直方体セル情報を適用
-            packed_atoms.set_cell(working_host.get_cell())
+
+            # 最終セル情報を適用
+            packed_atoms.set_cell(np.diag(final_cell_lengths))
             packed_atoms.set_pbc(working_host.get_pbc())
-            
+
             if verbose:
                 print(f"生成された構造: {packed_atoms.get_chemical_formula()}")
-            
+                print(f"最終セルサイズ: {final_cell_lengths}")
+
             return packed_atoms
             
         else:
